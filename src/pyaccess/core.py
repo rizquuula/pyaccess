@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pandas as pd
 import pyodbc
+import sqlalchemy as sa
+from sqlalchemy import Engine
 
 from .exceptions import AccessDatabaseError, DatabaseConnectionError, TableNotFoundError
 from .models import ColumnInfo, TableInfo
@@ -44,6 +46,8 @@ class AccessDatabase:
             self._check_driver()
             raise DatabaseConnectionError(f"Cannot access database: {db_path}. Error: {e}")
 
+        # Initialize SQLAlchemy engine (lazily created when needed)
+        self._engine: Engine | None = None
         self._tables_cache: list[str] | None = None
         self._schema_cache: dict[str, TableInfo] | None = None
 
@@ -64,6 +68,26 @@ class AccessDatabase:
                 f"Available ODBC drivers on your system: "
                 f"{', '.join(available_drivers) if available_drivers else 'None'}"
             )
+
+    def _get_engine(self) -> Engine:
+        """
+        Get or create SQLAlchemy engine for pandas operations.
+
+        Returns:
+            SQLAlchemy Engine instance
+        """
+        if self._engine is None:
+            connection_string = (
+                r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};"
+                f"DBQ={self.db_path};"
+                r"ExtendedAnsiSQL=1;"
+            )
+            connection_url = sa.engine.URL.create(
+                "access+pyodbc",
+                query={"odbc_connect": connection_string}
+            )
+            self._engine = sa.create_engine(connection_url)
+        return self._engine
 
     def get_tables(self) -> list[str]:
         """
@@ -145,7 +169,12 @@ class AccessDatabase:
         return sql_where
 
     def query_table(
-        self, table_name: str, columns: list[str] | None = None, where: str | None = None, limit: int | None = None
+        self,
+        table_name: str,
+        columns: list[str] | None = None,
+        where: str | None = None,
+        limit: int | None = None,
+        chunksize: int | None = None,
     ) -> pd.DataFrame:
         """
         Query a table and return results as a pandas DataFrame.
@@ -155,6 +184,8 @@ class AccessDatabase:
             columns: List of column names to select (None for all columns)
             where: WHERE clause (pandas query syntax, e.g., "column == 'value'")
             limit: Maximum number of rows to return
+            chunksize: If specified, read data in chunks of this size and concatenate.
+                       Useful for memory-efficient processing of large tables.
 
         Returns:
             pandas DataFrame with query results
@@ -198,8 +229,23 @@ class AccessDatabase:
             sql += f" WHERE {sql_where}"
 
         try:
-            df = pd.read_sql(sql, self._connection)
-            return df
+            # Use SQLAlchemy engine for pandas operations (fixes DBAPI2 warning)
+            engine = self._get_engine()
+
+            if chunksize is not None:
+                # Read in chunks and concatenate for memory efficiency
+                chunk_iterator = pd.read_sql(sql, engine, chunksize=chunksize)
+                chunks = list(chunk_iterator)
+
+                if chunks:
+                    df = pd.concat(chunks, ignore_index=True)
+                    return df
+                else:
+                    return pd.DataFrame()
+            else:
+                # Read entire result set at once
+                df = pd.read_sql(sql, engine)
+                return df
         except Exception as e:
             raise AccessDatabaseError(f"Query failed: {sql}. Error: {e}")
 
@@ -232,6 +278,7 @@ class AccessDatabase:
         columns: list[str] | None = None,
         where: str | None = None,
         limit: int | None = None,
+        chunksize: int | None = None,
     ) -> None:
         """
         Export a table to CSV file.
@@ -242,12 +289,76 @@ class AccessDatabase:
             columns: List of column names to export (None for all)
             where: WHERE clause for filtering
             limit: Maximum number of rows to export
+            chunksize: If specified, write data in chunks of this size.
+                       Useful for memory-efficient export of large tables.
 
         Raises:
             TableNotFoundError: If table doesn't exist
         """
-        df = self.query_table(table_name, columns=columns, where=where, limit=limit)
-        df.to_csv(output_path, index=False)
+        if chunksize is not None:
+            # Export in chunks for memory efficiency
+            engine = self._get_engine()
+
+            # Build SQL query (reuse logic from query_table)
+            if table_name not in self.get_tables():
+                raise TableNotFoundError(f"Table '{table_name}' not found")
+
+            table_info = self.get_table_info(table_name)
+            valid_columns = [col.name for col in table_info.columns]
+
+            if columns:
+                valid_requested_cols = [col for col in columns if col in valid_columns]
+                if not valid_requested_cols:
+                    # Create empty CSV with headers
+                    pd.DataFrame(columns=columns).to_csv(output_path, index=False)
+                    return
+                col_list = ', '.join([f'[{col}]' for col in valid_requested_cols])
+            else:
+                col_list = '*'
+
+            sql = "SELECT "
+            if limit:
+                sql += f"TOP {limit} "
+            sql += f"{col_list} FROM [{table_name}]"
+
+            if where:
+                sql_where = self._convert_where_clause(where)
+                sql += f" WHERE {sql_where}"
+
+            # Write chunks to CSV
+            chunk_iterator = pd.read_sql(sql, engine, chunksize=chunksize)
+            first_chunk = True
+
+            for chunk in chunk_iterator:
+                if first_chunk:
+                    chunk.to_csv(output_path, index=False, mode='w', header=True)
+                    first_chunk = False
+                else:
+                    chunk.to_csv(output_path, index=False, mode='a', header=False)
+
+            # If no chunks were written (empty result), create file with headers only
+            if first_chunk:
+                if columns:
+                    valid_requested_cols = [col for col in columns if col in valid_columns]
+                    pd.DataFrame(columns=valid_requested_cols if valid_requested_cols else columns).to_csv(
+                        output_path, index=False
+                    )
+                else:
+                    pd.DataFrame(columns=valid_columns).to_csv(output_path, index=False)
+        else:
+            # Export entire table at once
+            df = self.query_table(table_name, columns=columns, where=where, limit=limit)
+            df.to_csv(output_path, index=False)
+
+    def close(self) -> None:
+        """Close all database connections and dispose resources."""
+        if hasattr(self, '_connection') and self._connection:
+            self._connection.close()
+            self._connection = None
+
+        if hasattr(self, '_engine') and self._engine:
+            self._engine.dispose()
+            self._engine = None
 
     def __enter__(self):
         """Context manager entry."""
@@ -255,5 +366,4 @@ class AccessDatabase:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit."""
-        if hasattr(self, '_connection'):
-            self._connection.close()
+        self.close()

@@ -96,3 +96,96 @@ class TestAccessDatabase:
         finally:
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
+
+    def test_query_with_chunksize(self, db):
+        """Test querying with chunksize parameter."""
+        # Query with small chunksize
+        df = db.query_table("collar", chunksize=2)
+        assert isinstance(df, pd.DataFrame)
+        assert "hole_id" in df.columns
+
+        # Verify result matches non-chunked query
+        df_regular = db.query_table("collar")
+        assert len(df) == len(df_regular)
+        assert set(df.columns) == set(df_regular.columns)
+
+    def test_query_with_chunksize_and_limit(self, db):
+        """Test querying with both chunksize and limit."""
+        df = db.query_table("collar", limit=5, chunksize=2)
+        assert isinstance(df, pd.DataFrame)
+        assert len(df) <= 5
+
+    def test_query_with_chunksize_and_where(self, db):
+        """Test querying with chunksize and WHERE clause."""
+        # Get first hole ID to test with
+        df_all = db.query_table("collar", limit=1)
+        if len(df_all) > 0:
+            hole_id = df_all.iloc[0]["hole_id"]
+            df = db.query_table("collar", where=f"hole_id == '{hole_id}'", chunksize=10)
+            assert isinstance(df, pd.DataFrame)
+            assert len(df) >= 1
+            assert all(df["hole_id"] == hole_id)
+
+    def test_query_empty_result_with_chunksize(self, db):
+        """Test querying with chunksize returns empty DataFrame when no results."""
+        df = db.query_table("collar", where="hole_id == 'NONEXISTENT_HOLE'", chunksize=10)
+        assert isinstance(df, pd.DataFrame)
+        assert len(df) == 0
+
+    def test_export_to_csv_with_chunksize(self, db):
+        """Test exporting table to CSV with chunked writing."""
+        with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
+            tmp_path = tmp.name
+
+        try:
+            db.export_table_to_csv("collar", tmp_path, limit=10, chunksize=3)
+            assert Path(tmp_path).exists()
+
+            # Verify the exported data
+            df_exported = pd.read_csv(tmp_path)
+            assert len(df_exported) <= 10
+            assert "hole_id" in df_exported.columns
+
+            # Verify against non-chunked export
+            df_regular = db.query_table("collar", limit=10)
+            assert len(df_exported) == len(df_regular)
+
+        finally:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+
+    def test_export_empty_result_with_chunksize(self, db):
+        """Test exporting empty result with chunksize creates file with headers."""
+        with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
+            tmp_path = tmp.name
+
+        try:
+            db.export_table_to_csv(
+                "collar",
+                tmp_path,
+                where="hole_id == 'NONEXISTENT_HOLE'",
+                chunksize=10
+            )
+            assert Path(tmp_path).exists()
+
+            # Verify file has headers but no data
+            df_exported = pd.read_csv(tmp_path)
+            assert len(df_exported) == 0
+            assert len(df_exported.columns) > 0  # Should have column headers
+
+        finally:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+
+    def test_close_method(self, db_path):
+        """Test close() method properly disposes resources."""
+        db = AccessDatabase(db_path)
+        tables = db.get_tables()
+        assert len(tables) > 0
+
+        # Close connections
+        db.close()
+
+        # After closing, _connection and _engine should be None
+        assert db._connection is None
+        assert db._engine is None

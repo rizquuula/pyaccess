@@ -1,9 +1,31 @@
 [project]
 name = "pyaccess"
-version = "0.1.0"
+version = "0.1.0-alpha-0"
 description = "Python library for reading MS Access databases (.accdb/.mdb files) on Linux systems using mdbtools"
 readme = "README.md"
 requires-python = ">=3.11"
+license = "MIT"
+authors = [
+    {name = "Lyralabs", email = "developer@lyralabs.cloud"},
+]
+maintainers = [
+    {name = "Lyralabs", email = "developer@lyralabs.cloud"},
+]
+keywords = ["access", "database", "ms-access", "mdb", "accdb", "pandas", "geological", "mining", "mdbtools"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Database",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+urls = {Homepage = "https://github.com/rizquuula/pyaccess", Repository = "https://github.com/rizquuula/pyaccess.git"}
 dependencies = [
     "pandas>=2.0.0",
     "pip>=25.3",
@@ -12,7 +34,7 @@ dependencies = [
 
 [tool.ruff]
 line-length = 120
-target-version = "py313"
+target-version = "py311"
 exclude = [
     ".git",
     "__pycache__",

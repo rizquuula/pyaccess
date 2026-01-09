@@ -38,13 +38,13 @@ class AccessDatabase:
         # Verify we can access the database
         try:
             self._run_mdb_command(["mdb-tables", str(self.db_path)])
-        except subprocess.CalledProcessError:
+        except (subprocess.CalledProcessError, FileNotFoundError):
             # Try to install mdbtools automatically
             self._install_mdbtools()
             # Retry verification
             try:
                 self._run_mdb_command(["mdb-tables", str(self.db_path)])
-            except subprocess.CalledProcessError:
+            except (subprocess.CalledProcessError, FileNotFoundError):
                 raise DatabaseConnectionError(f"Cannot access database: {db_path}")
 
         self._tables_cache: list[str] | None = None

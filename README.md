@@ -13,15 +13,38 @@ A Python library for reading Microsoft Access databases (.accdb/.mdb files) on L
 
 ## Installation
 
+### Using uv (recommended)
 ```bash
+# Install uv if not already installed
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Install the package
+uv pip install pyaccess
+```
+
+### Using pip
+```bash
+pip install pyaccess
+```
+
+### For development
+```bash
+# Clone the repository
+git clone https://github.com/rizquuula/pyaccess.git
+cd pyaccess
+
+# Install with uv
+uv pip install -e .
+
+# Or with pip
 pip install -e .
 ```
 
 ### System Requirements
 
-- Linux operating system
-- mdbtools (install with `apt install mdbtools` on Debian/Ubuntu)
-- Python 3.13+
+- Linux operating system (automatic mdbtools installation supported)
+- mdbtools (automatically installed on first use, or manually with `apt install mdbtools` on Debian/Ubuntu)
+- Python 3.11+
 
 ## Quick Start
 
@@ -85,9 +108,11 @@ holes_in_block = db.collar.get_holes_in_block("Block_A")
 
 # Survey data
 survey_data = db.survey.get_survey_for_hole("DH001")
+all_surveys = db.survey.get_all_surveys()
 
 # Lithology data
 litho_data = db.lithology.get_lithology_for_hole("DH001")
+all_litho = db.lithology.get_all_lithology()
 litho_by_code = db.lithology.get_lithology_by_code("QTZ")
 
 # Get complete hole data (collar + survey + lithology)
@@ -209,20 +234,31 @@ pytest --cov=pyaccess --cov-report=html
 
 ```bash
 # Clone repository
-git clone <repository-url>
+git clone https://github.com/rizquuula/pyaccess.git
 cd pyaccess
 
-# Install in development mode
-pip install -e .
+# Install with uv (recommended)
+uv pip install -e .
+uv pip install -e ".[dev]"
 
-# Install development dependencies
-pip install pytest pandas ruff
+# Or with pip
+pip install -e .
+pip install pytest ruff
 
 # Run linting
 ruff check .
 
+# Auto-format code
+./auto_format_ruff.sh
+
 # Run tests
 pytest
+
+# Build package
+uv build
+
+# Publish (see Makefile for details)
+make help
 ```
 
 ### Project Structure
@@ -230,20 +266,38 @@ pytest
 ```
 pyaccess/
 ├── src/
-│   ├── pyaccess.py     # Main library code
-│   └── main.py         # Example usage
+│   ├── pyaccess/
+│   │   ├── __init__.py           # Main package exports
+│   │   ├── core.py               # AccessDatabase class
+│   │   ├── exceptions.py         # Custom exceptions
+│   │   ├── models.py             # Data models
+│   │   └── geological/
+│   │       ├── __init__.py       # Geological package exports
+│   │       ├── collar.py         # CollarData class
+│   │       ├── database.py       # GeologicalDatabase class
+│   │       ├── lithology.py      # LithologyData class
+│   │       └── survey.py         # SurveyData class
 ├── tests/
-│   └── test_pyaccess.py # Test suite
-├── resources/          # Test data (Access databases)
-├── pyproject.toml      # Project configuration
-└── README.md          # This file
+│   ├── conftest.py               # Test configuration
+│   ├── test_access_database.py   # Core database tests
+│   ├── test_error_handling.py    # Error handling tests
+│   └── test_geological_database.py # Geological tests
+├── pyproject.toml                # Project configuration
+├── uv.lock                       # Dependency lock file
+├── Makefile                      # Build and publish commands
+├── auto_format_ruff.sh           # Code formatting script
+└── README.md                     # This file
 ```
 
 ## Dependencies
 
-- **pandas**: Data manipulation and analysis
-- **typing-extensions**: Enhanced type hints for older Python versions
-- **mdbtools** (system): Command-line tools for reading MS Access databases
+### Runtime Dependencies
+- **pandas >= 2.0.0**: Data manipulation and analysis
+- **typing-extensions >= 4.0.0**: Enhanced type hints for older Python versions
+- **pip >= 25.3**: Package installer (automatically available)
+
+### System Dependencies
+- **mdbtools**: Command-line tools for reading MS Access databases (automatically installed on Linux)
 
 ## License
 

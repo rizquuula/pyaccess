@@ -1,7 +1,7 @@
 [project]
 name = "pyaccess"
 version = "0.1.0a3"
-description = "Python library for reading MS Access databases (.accdb/.mdb files) on Linux systems using mdbtools"
+description = "Python library for reading MS Access databases (.accdb/.mdb files) using pyodbc"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
@@ -16,7 +16,9 @@ classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
+    "Operating System :: Microsoft :: Windows",
     "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -29,6 +31,7 @@ urls = {Homepage = "https://github.com/rizquuula/pyaccess", Repository = "https:
 dependencies = [
     "pandas>=2.0.0",
     "pip>=25.3",
+    "pyodbc>=5.0.0",
     "typing-extensions>=4.0.0",
 ]
 

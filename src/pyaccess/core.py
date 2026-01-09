@@ -2,13 +2,10 @@
 Core AccessDatabase class for MS Access database operations.
 """
 
-import os
-import platform
-import subprocess
-import tempfile
 from pathlib import Path
 
 import pandas as pd
+import pyodbc
 
 from .exceptions import AccessDatabaseError, DatabaseConnectionError, TableNotFoundError
 from .models import ColumnInfo, TableInfo
@@ -18,7 +15,7 @@ class AccessDatabase:
     """
     Main class for accessing MS Access databases.
 
-    Provides methods to connect to and query MS Access databases using mdbtools.
+    Provides methods to connect to and query MS Access databases using pyodbc.
     """
 
     def __init__(self, db_path: str | Path):
@@ -35,59 +32,38 @@ class AccessDatabase:
         if not self.db_path.exists():
             raise DatabaseConnectionError(f"Database file not found: {db_path}")
 
-        # Verify we can access the database
+        # Try to connect to the database using pyodbc
         try:
-            self._run_mdb_command(["mdb-tables", str(self.db_path)])
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            # Try to install mdbtools automatically
-            self._install_mdbtools()
-            # Retry verification
-            try:
-                self._run_mdb_command(["mdb-tables", str(self.db_path)])
-            except (subprocess.CalledProcessError, FileNotFoundError):
-                raise DatabaseConnectionError(f"Cannot access database: {db_path}")
+            conn_str = (
+                r'Driver={Microsoft Access Driver (*.mdb, *.accdb)};'
+                f'DBQ={self.db_path};'
+            )
+            self._connection = pyodbc.connect(conn_str)
+        except pyodbc.Error as e:
+            # Check if driver is available and provide helpful error message
+            self._check_driver()
+            raise DatabaseConnectionError(f"Cannot access database: {db_path}. Error: {e}")
 
         self._tables_cache: list[str] | None = None
         self._schema_cache: dict[str, TableInfo] | None = None
 
-    def _install_mdbtools(self) -> None:
-        """Attempt to install mdbtools based on the detected operating system."""
-        system = platform.system()
+    def _check_driver(self) -> None:
+        """Check if Microsoft Access ODBC driver is available and provide installation instructions."""
+        available_drivers = pyodbc.drivers()
+        access_drivers = [d for d in available_drivers if 'Access' in d or 'access' in d]
 
-        if system == "Linux":
-            try:
-                # Update package list
-                subprocess.run(["sudo", "apt", "update"], check=True, capture_output=True, text=True)
-                # Install mdbtools
-                subprocess.run(["sudo", "apt", "install", "-y", "mdbtools"], check=True, capture_output=True, text=True)
-            except subprocess.CalledProcessError as e:
-                raise DatabaseConnectionError(f"Failed to install mdbtools on Linux. Please install manually: sudo apt install mdbtools. Error: {e.stderr}")  # noqa: E501
-        elif system == "Darwin":  # macOS
-            try:
-                subprocess.run(["brew", "install", "mdbtools"], check=True, capture_output=True, text=True)
-            except subprocess.CalledProcessError as e:
-                raise DatabaseConnectionError(f"Failed to install mdbtools on macOS. Please install Homebrew and run: brew install mdbtools. Error: {e.stderr}")  # noqa: E501
-        elif system == "Windows":
-            # Try conda first (most reliable cross-platform option)
-            try:
-                subprocess.run(["conda", "install", "-c", "conda-forge", "mdbtools", "-y"], check=True, capture_output=True, text=True)  # noqa: E501
-            except (subprocess.CalledProcessError, FileNotFoundError):
-                raise DatabaseConnectionError(
-                    "mdbtools not found on Windows. Please install manually using one of these options:\n"
-                    "1. Install Windows Subsystem for Linux (WSL) and run: sudo apt install mdbtools\n"
-                    "2. Install conda/miniconda and run: conda install -c conda-forge mdbtools\n"
-                    "3. Download pre-compiled binaries from: https://github.com/mdbtools/mdbtools/releases"
-                )
-        else:
-            raise DatabaseConnectionError(f"Unsupported operating system: {system}. Please install mdbtools manually from https://github.com/mdbtools/mdbtools")  # noqa: E501
-
-    def _run_mdb_command(self, command: list[str]) -> str:
-        """Run an mdbtools command and return the output."""
-        try:
-            result = subprocess.run(command, capture_output=True, text=True, check=True)
-            return result.stdout.strip()
-        except subprocess.CalledProcessError as e:
-            raise AccessDatabaseError(f"mdbtools command failed: {e.stderr}")
+        if not access_drivers:
+            raise DatabaseConnectionError(
+                "Microsoft Access ODBC driver not found.\n\n"
+                "To use pyaccess, you need to install the Microsoft Access Database Engine:\n"
+                "1. Download from: https://www.microsoft.com/en-us/download/details.aspx?id=54920\n"
+                "2. Important: Install the version (32-bit or 64-bit) that matches your Python installation\n"
+                "   - Check your Python: python -c \"import struct; print(struct.calcsize('P') * 8, 'bit')\"\n"
+                "   - 32-bit Python requires 32-bit ACE driver\n"
+                "   - 64-bit Python requires 64-bit ACE driver\n\n"
+                f"Available ODBC drivers on your system: "
+                f"{', '.join(available_drivers) if available_drivers else 'None'}"
+            )
 
     def get_tables(self) -> list[str]:
         """
@@ -97,8 +73,11 @@ class AccessDatabase:
             List of table names
         """
         if self._tables_cache is None:
-            output = self._run_mdb_command(["mdb-tables", str(self.db_path)])
-            self._tables_cache = [table.strip() for table in output.split() if table.strip()]
+            cursor = self._connection.cursor()
+            # Get all user tables (table_type='TABLE' excludes system tables)
+            tables = cursor.tables(tableType='TABLE')
+            self._tables_cache = [row.table_name for row in tables if not row.table_name.startswith('MSys')]
+            cursor.close()
         return self._tables_cache.copy()
 
     def get_table_info(self, table_name: str) -> TableInfo:
@@ -125,38 +104,45 @@ class AccessDatabase:
     def _load_schema_cache(self) -> None:
         """Load and cache schema information for all tables."""
         self._schema_cache = {}
+        cursor = self._connection.cursor()
 
-        # Get schema for all tables
-        output = self._run_mdb_command(["mdb-schema", str(self.db_path)])
+        for table_name in self.get_tables():
+            columns = []
+            # Get column information for this table
+            for col in cursor.columns(table=table_name):
+                # Map ODBC type codes to readable type names
+                type_name = col.type_name
+                nullable = col.nullable == 1
 
-        current_table = None
-        columns = []
+                columns.append(ColumnInfo(
+                    name=col.column_name,
+                    type=type_name,
+                    nullable=nullable
+                ))
 
-        for line in output.split("\n"):
-            line = line.strip()
-            if line.startswith("CREATE TABLE ["):
-                # New table definition
-                if current_table and columns:
-                    self._schema_cache[current_table] = TableInfo(name=current_table, columns=columns)
+            if columns:
+                self._schema_cache[table_name] = TableInfo(name=table_name, columns=columns)
 
-                table_name = line.split("[")[1].split("]")[0]
-                current_table = table_name
-                columns = []
-            elif line.startswith("[") and "]" in line and current_table:
-                # Column definition
-                col_def = line.strip("(),;")
-                parts = col_def.split("\t")
+        cursor.close()
 
-                if len(parts) >= 2:
-                    col_name = parts[0].strip("[]")
-                    col_type = parts[1].strip()
-                    nullable = "NOT NULL" not in col_def
+    def _convert_where_clause(self, where: str) -> str:
+        """
+        Convert pandas query syntax to SQL WHERE clause.
 
-                    columns.append(ColumnInfo(name=col_name, type=col_type, nullable=nullable))
+        Args:
+            where: pandas-style query string (e.g., "column == 'value'" or 'column == "value"')
 
-        # Add the last table
-        if current_table and columns:
-            self._schema_cache[current_table] = TableInfo(name=current_table, columns=columns)
+        Returns:
+            SQL-compatible WHERE clause
+        """
+        # Replace pandas operators with SQL equivalents
+        sql_where = where.replace('==', '=')
+
+        # Convert double quotes to single quotes for string literals in Access SQL
+        # This handles cases like: column == "value"
+        sql_where = sql_where.replace('"', "'")
+
+        return sql_where
 
     def query_table(
         self, table_name: str, columns: list[str] | None = None, where: str | None = None, limit: int | None = None
@@ -167,7 +153,7 @@ class AccessDatabase:
         Args:
             table_name: Name of the table to query
             columns: List of column names to select (None for all columns)
-            where: WHERE clause (SQL syntax, without the WHERE keyword)
+            where: WHERE clause (pandas query syntax, e.g., "column == 'value'")
             limit: Maximum number of rows to return
 
         Returns:
@@ -175,52 +161,47 @@ class AccessDatabase:
 
         Raises:
             TableNotFoundError: If table doesn't exist
+            AccessDatabaseError: If query fails
         """
         if table_name not in self.get_tables():
             raise TableNotFoundError(f"Table '{table_name}' not found")
 
-        # Build mdb-export command
-        cmd = ["mdb-export", str(self.db_path), table_name]
+        # Get table info to validate columns
+        table_info = self.get_table_info(table_name)
+        valid_columns = [col.name for col in table_info.columns]
 
-        # Add column selection if specified
+        # Build SQL query
         if columns:
-            # mdb-export doesn't support column selection directly,
-            # we'll filter after export
-            pass
+            # Filter to only valid columns (for backward compatibility with mdbtools behavior)
+            valid_requested_cols = [col for col in columns if col in valid_columns]
 
-        # Execute query
-        output = self._run_mdb_command(cmd)
+            # If no valid columns, return empty DataFrame
+            if not valid_requested_cols:
+                return pd.DataFrame()
 
-        # Parse CSV output
-        with tempfile.NamedTemporaryFile(mode="w+", newline="", delete=False) as f:
-            f.write(output)
-            temp_file = f.name
+            # Wrap column names in brackets for Access SQL
+            col_list = ', '.join([f'[{col}]' for col in valid_requested_cols])
+        else:
+            col_list = '*'
+
+        sql = "SELECT "
+
+        # Add TOP clause for limit (Access SQL uses TOP instead of LIMIT)
+        if limit:
+            sql += f"TOP {limit} "
+
+        sql += f"{col_list} FROM [{table_name}]"
+
+        # Add WHERE clause if specified
+        if where:
+            sql_where = self._convert_where_clause(where)
+            sql += f" WHERE {sql_where}"
 
         try:
-            df = pd.read_csv(temp_file, sep=",", quotechar='"', escapechar="\\")
-
-            # Filter columns if specified
-            if columns:
-                available_cols = [col for col in columns if col in df.columns]
-                df = df[available_cols]
-
-            # Apply WHERE filtering if specified
-            if where:
-                # Simple WHERE clause parsing - for complex queries, would need more work
-                # For now, just evaluate as pandas query
-                try:
-                    df = df.query(where)
-                except Exception as e:
-                    raise AccessDatabaseError(f"Invalid WHERE clause: {where} - {e}")
-
-            # Apply limit
-            if limit:
-                df = df.head(limit)
-
+            df = pd.read_sql(sql, self._connection)
             return df
-
-        finally:
-            os.unlink(temp_file)
+        except Exception as e:
+            raise AccessDatabaseError(f"Query failed: {sql}. Error: {e}")
 
     def get_table_count(self, table_name: str) -> int:
         """
@@ -235,10 +216,14 @@ class AccessDatabase:
         Raises:
             TableNotFoundError: If table doesn't exist
         """
-        _ = self.query_table(table_name, limit=0)  # Just get structure
-        # For count, we need to actually count rows
-        df_full = self.query_table(table_name)
-        return len(df_full)
+        if table_name not in self.get_tables():
+            raise TableNotFoundError(f"Table '{table_name}' not found")
+
+        cursor = self._connection.cursor()
+        cursor.execute(f"SELECT COUNT(*) FROM [{table_name}]")
+        count = cursor.fetchone()[0]
+        cursor.close()
+        return count
 
     def export_table_to_csv(
         self,
@@ -270,4 +255,5 @@ class AccessDatabase:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit."""
-        pass  # No cleanup needed for mdbtools
+        if hasattr(self, '_connection'):
+            self._connection.close()

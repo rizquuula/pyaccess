@@ -1,6 +1,6 @@
 [project]
 name = "pyaccess"
-version = "0.1.0a2"
+version = "0.1.0a3"
 description = "Python library for reading MS Access databases (.accdb/.mdb files) on Linux systems using mdbtools"
 readme = "README.md"
 requires-python = ">=3.11"

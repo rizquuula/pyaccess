@@ -2,68 +2,22 @@
 Core AccessDatabase class for MS Access database operations.
 """
 
+import platform
 from pathlib import Path
 
 import pandas as pd
-import pyodbc
 
 from .exceptions import AccessDatabaseError, DatabaseConnectionError, TableNotFoundError
 from .models import ColumnInfo, TableInfo
 
 
-class AccessDatabase:
-    """
-    Main class for accessing MS Access databases.
+class PyodbcBackend:
+    """Backend implementation using pyodbc for Windows/Mac."""
 
-    Provides methods to connect to and query MS Access databases using pyodbc.
-    """
-
-    def __init__(self, db_path: str | Path):
-        """
-        Initialize database connection.
-
-        Args:
-            db_path: Path to the .accdb or .mdb file
-
-        Raises:
-            DatabaseConnectionError: If the database file cannot be accessed
-        """
-        self.db_path = Path(db_path)
-        if not self.db_path.exists():
-            raise DatabaseConnectionError(f"Database file not found: {db_path}")
-
-        # Try to connect to the database using pyodbc
-        try:
-            conn_str = (
-                r'Driver={Microsoft Access Driver (*.mdb, *.accdb)};'
-                f'DBQ={self.db_path};'
-            )
-            self._connection = pyodbc.connect(conn_str)
-        except pyodbc.Error as e:
-            # Check if driver is available and provide helpful error message
-            self._check_driver()
-            raise DatabaseConnectionError(f"Cannot access database: {db_path}. Error: {e}")
-
+    def __init__(self, connection):
+        self._connection = connection
         self._tables_cache: list[str] | None = None
         self._schema_cache: dict[str, TableInfo] | None = None
-
-    def _check_driver(self) -> None:
-        """Check if Microsoft Access ODBC driver is available and provide installation instructions."""
-        available_drivers = pyodbc.drivers()
-        access_drivers = [d for d in available_drivers if 'Access' in d or 'access' in d]
-
-        if not access_drivers:
-            raise DatabaseConnectionError(
-                "Microsoft Access ODBC driver not found.\n\n"
-                "To use pyaccess, you need to install the Microsoft Access Database Engine:\n"
-                "1. Download from: https://www.microsoft.com/en-us/download/details.aspx?id=54920\n"
-                "2. Important: Install the version (32-bit or 64-bit) that matches your Python installation\n"
-                "   - Check your Python: python -c \"import struct; print(struct.calcsize('P') * 8, 'bit')\"\n"
-                "   - 32-bit Python requires 32-bit ACE driver\n"
-                "   - 64-bit Python requires 64-bit ACE driver\n\n"
-                f"Available ODBC drivers on your system: "
-                f"{', '.join(available_drivers) if available_drivers else 'None'}"
-            )
 
     def get_tables(self) -> list[str]:
         """
@@ -249,11 +203,171 @@ class AccessDatabase:
         df = self.query_table(table_name, columns=columns, where=where, limit=limit)
         df.to_csv(output_path, index=False)
 
+    def close(self) -> None:
+        """Close the database connection."""
+        if hasattr(self, '_connection'):
+            self._connection.close()
+
+
+class AccessDatabase:
+    """
+    Main class for accessing MS Access databases.
+
+    Automatically chooses the appropriate backend based on the platform:
+    - Linux: Uses mdbtools
+    - Windows/Mac: Uses pyodbc with Microsoft Access ODBC driver
+    """
+
+    def __init__(self, db_path: str | Path):
+        """
+        Initialize database connection.
+
+        Args:
+            db_path: Path to the .accdb or .mdb file
+
+        Raises:
+            DatabaseConnectionError: If the database file cannot be accessed
+        """
+        self.db_path = Path(db_path)
+
+        # Choose backend based on platform
+        system = platform.system().lower()
+        if system == "linux":
+            # Try mdbtools backend first on Linux
+            try:
+                from .mdbtools_backend import MdbtoolsAccessDatabase
+                self._backend = MdbtoolsAccessDatabase(db_path)
+            except DatabaseConnectionError:
+                # Fall back to pyodbc if mdbtools fails
+                self._backend = self._create_pyodbc_backend(db_path)
+        else:
+            # Use pyodbc on Windows/Mac
+            self._backend = self._create_pyodbc_backend(db_path)
+
+    def _create_pyodbc_backend(self, db_path: str | Path):
+        """Create a pyodbc-based backend for Windows/Mac."""
+        import pyodbc
+
+        try:
+            conn_str = (
+                r'Driver={Microsoft Access Driver (*.mdb, *.accdb)};'
+                f'DBQ={db_path};'
+            )
+            connection = pyodbc.connect(conn_str)
+            return PyodbcBackend(connection)
+        except pyodbc.Error as e:
+            # Check if driver is available and provide helpful error message
+            self._check_driver()
+            raise DatabaseConnectionError(f"Cannot access database: {db_path}. Error: {e}")
+
+    def _check_driver(self) -> None:
+        """Check if Microsoft Access ODBC driver is available and provide installation instructions."""
+        import pyodbc
+
+        available_drivers = pyodbc.drivers()
+        access_drivers = [d for d in available_drivers if 'Access' in d or 'access' in d]
+
+        if not access_drivers:
+            raise DatabaseConnectionError(
+                "Microsoft Access ODBC driver not found.\n\n"
+                "To use pyaccess, you need to install the Microsoft Access Database Engine:\n"
+                "1. Download from: https://www.microsoft.com/en-us/download/details.aspx?id=54920\n"
+                "2. Important: Install the version (32-bit or 64-bit) that matches your Python installation\n"
+                "   - Check your Python: python -c \"import struct; print(struct.calcsize('P') * 8, 'bit')\"\n"
+                "   - 32-bit Python requires 32-bit ACE driver\n"
+                "   - 64-bit Python requires 64-bit ACE driver\n\n"
+                f"Available ODBC drivers on your system: "
+                f"{', '.join(available_drivers) if available_drivers else 'None'}"
+            )
+
+    def get_tables(self) -> list[str]:
+        """
+        Get list of all tables in the database.
+
+        Returns:
+            List of table names
+        """
+        return self._backend.get_tables()
+
+    def get_table_info(self, table_name: str) -> TableInfo:
+        """
+        Get detailed information about a table.
+
+        Args:
+            table_name: Name of the table
+
+        Returns:
+            TableInfo object with column details
+
+        Raises:
+            TableNotFoundError: If table doesn't exist
+        """
+        return self._backend.get_table_info(table_name)
+
+    def query_table(
+        self, table_name: str, columns: list[str] | None = None, where: str | None = None, limit: int | None = None
+    ) -> pd.DataFrame:
+        """
+        Query a table and return results as a pandas DataFrame.
+
+        Args:
+            table_name: Name of the table to query
+            columns: List of column names to select (None for all columns)
+            where: WHERE clause (pandas query syntax, e.g., "column == 'value'")
+            limit: Maximum number of rows to return
+
+        Returns:
+            pandas DataFrame with query results
+
+        Raises:
+            TableNotFoundError: If table doesn't exist
+            AccessDatabaseError: If query fails
+        """
+        return self._backend.query_table(table_name, columns, where, limit)
+
+    def get_table_count(self, table_name: str) -> int:
+        """
+        Get the number of rows in a table.
+
+        Args:
+            table_name: Name of the table
+
+        Returns:
+            Number of rows
+
+        Raises:
+            TableNotFoundError: If table doesn't exist
+        """
+        return self._backend.get_table_count(table_name)
+
+    def export_table_to_csv(
+        self,
+        table_name: str,
+        output_path: str | Path,
+        columns: list[str] | None = None,
+        where: str | None = None,
+        limit: int | None = None,
+    ) -> None:
+        """
+        Export a table to CSV file.
+
+        Args:
+            table_name: Name of the table to export
+            output_path: Path to output CSV file
+            columns: List of column names to export (None for all)
+            where: WHERE clause for filtering
+            limit: Maximum number of rows to export
+
+        Raises:
+            TableNotFoundError: If table doesn't exist
+        """
+        return self._backend.export_table_to_csv(table_name, output_path, columns, where, limit)
+
     def __enter__(self):
         """Context manager entry."""
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit."""
-        if hasattr(self, '_connection'):
-            self._connection.close()
+        if hasattr(self._backend, 'close'):
+            self._backend.close()

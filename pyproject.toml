@@ -1,0 +1,31 @@
+[project]
+name = "pyaccess"
+version = "0.1.0"
+description = "Python library for reading MS Access databases (.accdb/.mdb files) on Linux systems using mdbtools"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pandas>=2.0.0",
+    "pip>=25.3",
+    "typing-extensions>=4.0.0",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+exclude = [
+    ".git",
+    "__pycache__",
+    ".venv",          # ignore virtual env
+    "resources",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]  # E,F = errors, I = isort (imports), UP = pyupgrade
+fixable = ["ALL"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+log_cli = true
+log_level = "INFO"

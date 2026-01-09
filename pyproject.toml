@@ -1,6 +1,6 @@
 [project]
 name = "pyaccess"
-version = "0.1.0-alpha-0"
+version = "0.1.0-alpha-1"
 description = "Python library for reading MS Access databases (.accdb/.mdb files) on Linux systems using mdbtools"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -51,3 +51,8 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 log_cli = true
 log_level = "INFO"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]

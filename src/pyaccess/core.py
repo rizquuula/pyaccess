@@ -3,6 +3,7 @@ Core AccessDatabase class for MS Access database operations.
 """
 
 import os
+import platform
 import subprocess
 import tempfile
 from pathlib import Path
@@ -38,10 +39,47 @@ class AccessDatabase:
         try:
             self._run_mdb_command(["mdb-tables", str(self.db_path)])
         except subprocess.CalledProcessError:
-            raise DatabaseConnectionError(f"Cannot access database: {db_path}")
+            # Try to install mdbtools automatically
+            self._install_mdbtools()
+            # Retry verification
+            try:
+                self._run_mdb_command(["mdb-tables", str(self.db_path)])
+            except subprocess.CalledProcessError:
+                raise DatabaseConnectionError(f"Cannot access database: {db_path}")
 
         self._tables_cache: list[str] | None = None
         self._schema_cache: dict[str, TableInfo] | None = None
+
+    def _install_mdbtools(self) -> None:
+        """Attempt to install mdbtools based on the detected operating system."""
+        system = platform.system()
+
+        if system == "Linux":
+            try:
+                # Update package list
+                subprocess.run(["sudo", "apt", "update"], check=True, capture_output=True, text=True)
+                # Install mdbtools
+                subprocess.run(["sudo", "apt", "install", "-y", "mdbtools"], check=True, capture_output=True, text=True)
+            except subprocess.CalledProcessError as e:
+                raise DatabaseConnectionError(f"Failed to install mdbtools on Linux. Please install manually: sudo apt install mdbtools. Error: {e.stderr}")  # noqa: E501
+        elif system == "Darwin":  # macOS
+            try:
+                subprocess.run(["brew", "install", "mdbtools"], check=True, capture_output=True, text=True)
+            except subprocess.CalledProcessError as e:
+                raise DatabaseConnectionError(f"Failed to install mdbtools on macOS. Please install Homebrew and run: brew install mdbtools. Error: {e.stderr}")  # noqa: E501
+        elif system == "Windows":
+            # Try conda first (most reliable cross-platform option)
+            try:
+                subprocess.run(["conda", "install", "-c", "conda-forge", "mdbtools", "-y"], check=True, capture_output=True, text=True)  # noqa: E501
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                raise DatabaseConnectionError(
+                    "mdbtools not found on Windows. Please install manually using one of these options:\n"
+                    "1. Install Windows Subsystem for Linux (WSL) and run: sudo apt install mdbtools\n"
+                    "2. Install conda/miniconda and run: conda install -c conda-forge mdbtools\n"
+                    "3. Download pre-compiled binaries from: https://github.com/mdbtools/mdbtools/releases"
+                )
+        else:
+            raise DatabaseConnectionError(f"Unsupported operating system: {system}. Please install mdbtools manually from https://github.com/mdbtools/mdbtools")  # noqa: E501
 
     def _run_mdb_command(self, command: list[str]) -> str:
         """Run an mdbtools command and return the output."""

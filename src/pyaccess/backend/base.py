@@ -1,57 +1,33 @@
 """
-Core AccessDatabase class for MS Access database operations.
+Abstract base class for Access database backends.
 """
 
+from abc import ABC, abstractmethod
 from pathlib import Path
 
 import pandas as pd
 
-from .backend import create_backend
-from .models import TableInfo
+from ..models import TableInfo
 
 
-class AccessDatabase:
+class AccessBackend(ABC):
     """
-    Main class for accessing MS Access databases.
+    Abstract base class for MS Access database backends.
 
-    Automatically chooses the appropriate backend based on the platform:
-    - Linux: Uses mdbtools
-    - Windows/Mac: Uses pyodbc with Microsoft Access ODBC driver
+    All backend implementations must inherit from this class and implement
+    all abstract methods.
     """
 
     def __init__(self, db_path: str | Path):
         """
-        Initialize database connection.
+        Initialize the backend with database path.
 
         Args:
             db_path: Path to the .accdb or .mdb file
-
-        Raises:
-            DatabaseConnectionError: If the database file cannot be accessed
         """
         self.db_path = Path(db_path)
-        self._backend = create_backend(db_path)
 
-    def _get_engine(self) -> Engine:
-        """
-        Get or create SQLAlchemy engine for pandas operations.
-
-        Returns:
-            SQLAlchemy Engine instance
-        """
-        if self._engine is None:
-            connection_string = (
-                r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};"
-                f"DBQ={self.db_path};"
-                r"ExtendedAnsiSQL=1;"
-            )
-            connection_url = sa.engine.URL.create(
-                "access+pyodbc",
-                query={"odbc_connect": connection_string}
-            )
-            self._engine = sa.create_engine(connection_url)
-        return self._engine
-
+    @abstractmethod
     def get_tables(self) -> list[str]:
         """
         Get list of all tables in the database.
@@ -59,8 +35,9 @@ class AccessDatabase:
         Returns:
             List of table names
         """
-        return self._backend.get_tables()
+        pass
 
+    @abstractmethod
     def get_table_info(self, table_name: str) -> TableInfo:
         """
         Get detailed information about a table.
@@ -74,15 +51,11 @@ class AccessDatabase:
         Raises:
             TableNotFoundError: If table doesn't exist
         """
-        return self._backend.get_table_info(table_name)
+        pass
 
+    @abstractmethod
     def query_table(
-        self,
-        table_name: str,
-        columns: list[str] | None = None,
-        where: str | None = None,
-        limit: int | None = None,
-        chunksize: int | None = None,
+        self, table_name: str, columns: list[str] | None = None, where: str | None = None, limit: int | None = None
     ) -> pd.DataFrame:
         """
         Query a table and return results as a pandas DataFrame.
@@ -92,8 +65,6 @@ class AccessDatabase:
             columns: List of column names to select (None for all columns)
             where: WHERE clause (pandas query syntax, e.g., "column == 'value'")
             limit: Maximum number of rows to return
-            chunksize: If specified, read data in chunks of this size and concatenate.
-                       Useful for memory-efficient processing of large tables.
 
         Returns:
             pandas DataFrame with query results
@@ -102,8 +73,9 @@ class AccessDatabase:
             TableNotFoundError: If table doesn't exist
             AccessDatabaseError: If query fails
         """
-        return self._backend.query_table(table_name, columns, where, limit)
+        pass
 
+    @abstractmethod
     def get_table_count(self, table_name: str) -> int:
         """
         Get the number of rows in a table.
@@ -117,8 +89,9 @@ class AccessDatabase:
         Raises:
             TableNotFoundError: If table doesn't exist
         """
-        return self._backend.get_table_count(table_name)
+        pass
 
+    @abstractmethod
     def export_table_to_csv(
         self,
         table_name: str,
@@ -126,7 +99,6 @@ class AccessDatabase:
         columns: list[str] | None = None,
         where: str | None = None,
         limit: int | None = None,
-        chunksize: int | None = None,
     ) -> None:
         """
         Export a table to CSV file.
@@ -137,13 +109,16 @@ class AccessDatabase:
             columns: List of column names to export (None for all)
             where: WHERE clause for filtering
             limit: Maximum number of rows to export
-            chunksize: If specified, write data in chunks of this size.
-                       Useful for memory-efficient export of large tables.
 
         Raises:
             TableNotFoundError: If table doesn't exist
         """
-        return self._backend.export_table_to_csv(table_name, output_path, columns, where, limit)
+        pass
+
+    @abstractmethod
+    def close(self) -> None:
+        """Close the database connection."""
+        pass
 
     def __enter__(self):
         """Context manager entry."""
@@ -151,5 +126,4 @@ class AccessDatabase:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit."""
-        if hasattr(self._backend, "close"):
-            self._backend.close()
+        self.close()

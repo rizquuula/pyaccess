@@ -32,26 +32,6 @@ class AccessDatabase:
         self.db_path = Path(db_path)
         self._backend = create_backend(db_path)
 
-    def _get_engine(self) -> Engine:
-        """
-        Get or create SQLAlchemy engine for pandas operations.
-
-        Returns:
-            SQLAlchemy Engine instance
-        """
-        if self._engine is None:
-            connection_string = (
-                r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};"
-                f"DBQ={self.db_path};"
-                r"ExtendedAnsiSQL=1;"
-            )
-            connection_url = sa.engine.URL.create(
-                "access+pyodbc",
-                query={"odbc_connect": connection_string}
-            )
-            self._engine = sa.create_engine(connection_url)
-        return self._engine
-
     def get_tables(self) -> list[str]:
         """
         Get list of all tables in the database.
@@ -145,11 +125,25 @@ class AccessDatabase:
         """
         return self._backend.export_table_to_csv(table_name, output_path, columns, where, limit)
 
+    def close(self) -> None:
+        """Close the database connection and dispose resources."""
+        if hasattr(self._backend, "close"):
+            self._backend.close()
+
+    @property
+    def _connection(self):
+        """Access the backend connection (for testing)."""
+        return getattr(self._backend, "_connection", None)
+
+    @property
+    def _engine(self):
+        """Access the backend engine (for testing)."""
+        return getattr(self._backend, "_engine", None)
+
     def __enter__(self):
         """Context manager entry."""
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit."""
-        if hasattr(self._backend, "close"):
-            self._backend.close()
+        self.close()

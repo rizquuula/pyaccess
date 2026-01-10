@@ -1,10 +1,10 @@
 # PyAccess
 
-A Python library for reading Microsoft Access databases (.accdb/.mdb files) on Linux systems using mdbtools.
+A Python library for reading Microsoft Access databases (.accdb/.mdb files) with cross-platform support using automatic backend selection.
 
 ## Features
 
-- **Cross-platform Access database reading** - Works on Linux using mdbtools
+- **Cross-platform Access database reading** - Automatic backend selection for Linux (mdbtools), Windows (pyodbc), and macOS (mdbtools)
 - **Pandas integration** - Query results returned as pandas DataFrames
 - **Geological database support** - Specialized classes for mining/geological data
 - **Type safety** - Full type hints and error handling
@@ -27,6 +27,22 @@ uv pip install pyaccess
 pip install pyaccess
 ```
 
+### Platform-Specific Requirements
+
+#### Windows
+On Windows, you'll need the Microsoft Access Database Engine:
+1. Download from: https://www.microsoft.com/en-us/download/details.aspx?id=54920
+2. Install the version (32-bit or 64-bit) that matches your Python installation
+   - Check your Python: `python -c "import struct; print(struct.calcsize('P') * 8, 'bit')"`
+   - 32-bit Python requires 32-bit ACE driver
+   - 64-bit Python requires 64-bit ACE driver
+
+#### Linux/macOS
+No additional setup required - mdbtools will be installed automatically on first use, or you can install manually:
+- **Ubuntu/Debian**: `sudo apt install mdbtools`
+- **CentOS/RHEL**: `sudo yum install mdbtools`
+- **macOS**: `brew install mdbtools`
+
 ### For development
 ```bash
 # Clone the repository
@@ -42,9 +58,11 @@ pip install -e .
 
 ### System Requirements
 
-- Linux operating system (automatic mdbtools installation supported)
-- mdbtools (automatically installed on first use, or manually with `apt install mdbtools` on Debian/Ubuntu)
-- Python 3.11+
+- **Python 3.11+**
+- **Platform-specific database drivers:**
+  - **Windows**: Microsoft Access Database Engine (ACE) - download from Microsoft
+  - **Linux/macOS**: mdbtools (automatically installed on first use)
+- **Operating Systems**: Linux, Windows, macOS
 
 ## Quick Start
 
@@ -268,9 +286,14 @@ pyaccess/
 ├── src/
 │   ├── pyaccess/
 │   │   ├── __init__.py           # Main package exports
-│   │   ├── core.py               # AccessDatabase class
+│   │   ├── core.py               # AccessDatabase class with automatic backend selection
 │   │   ├── exceptions.py         # Custom exceptions
 │   │   ├── models.py             # Data models
+│   │   ├── backend/              # Backend implementations
+│   │   │   ├── __init__.py       # Backend factory and platform detection
+│   │   │   ├── base.py           # Abstract backend base class
+│   │   │   ├── mdbtools_backend.py # Linux/macOS backend using mdbtools
+│   │   │   └── pyodbc_backend.py # Windows backend using pyodbc
 │   │   └── geological/
 │   │       ├── __init__.py       # Geological package exports
 │   │       ├── collar.py         # CollarData class
@@ -296,16 +319,41 @@ pyaccess/
 - **typing-extensions >= 4.0.0**: Enhanced type hints for older Python versions
 - **pip >= 25.3**: Package installer (automatically available)
 
-### System Dependencies
-- **mdbtools**: Command-line tools for reading MS Access databases (automatically installed on Linux)
+### Platform-Specific Dependencies
+- **Windows**: `pyodbc` + Microsoft Access Database Engine (ACE)
+- **Linux/macOS**: `mdbtools` (automatically installed on first use)
+
+### Optional Dependencies (installed automatically based on platform)
+- **pyodbc >= 5.0.0**: ODBC database access for Windows
+- **sqlalchemy >= 2.0.0**: SQL toolkit for Windows backend
+- **sqlalchemy-access >= 2.0.0**: SQLAlchemy dialect for Access databases on Windows
 
 ## License
 
-[Add your license here]
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Contributing
 
-[Add contribution guidelines]
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details on how to get started.
+
+### Development Setup
+
+1. Fork the repository
+2. Clone your fork: `git clone https://github.com/yourusername/pyaccess.git`
+3. Create a virtual environment: `python -m venv venv`
+4. Activate the environment: `source venv/bin/activate` (Linux/macOS) or `venv\Scripts\activate` (Windows)
+5. Install development dependencies: `pip install -e .[dev]`
+6. Run tests: `pytest`
+7. Make your changes
+8. Run linting: `./auto_format_ruff.sh`
+9. Ensure tests pass: `pytest`
+10. Submit a pull request
+
+### Code Style
+
+- We use [Ruff](https://github.com/astral-sh/ruff) for linting and formatting
+- Run `./auto_format_ruff.sh` to format your code
+- Follow the existing code patterns and type hints
 
 ## Support
 

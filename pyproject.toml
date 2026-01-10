@@ -1,7 +1,7 @@
 [project]
 name = "pyaccess"
 version = "0.1.0a4"
-description = "Python library for reading MS Access databases (.accdb/.mdb files) using pyodbc"
+description = "Python library for reading MS Access databases (.accdb/.mdb files) with cross-platform support"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"

@@ -15,8 +15,8 @@ class AccessDatabase:
     Main class for accessing MS Access databases.
 
     Automatically chooses the appropriate backend based on the platform:
-    - Linux: Uses mdbtools
-    - Windows/Mac: Uses pyodbc with Microsoft Access ODBC driver
+    - Linux/Mac: Uses mdbtools
+    - Windows: Uses pyodbc with Microsoft Access ODBC driver
     """
 
     def __init__(self, db_path: str | Path):

@@ -10,7 +10,7 @@ from .exceptions import AccessDatabaseError, DatabaseConnectionError, TableNotFo
 from .geological import CollarData, GeologicalDatabase, LithologyData, SurveyData
 from .models import ColumnInfo, TableInfo
 
-__version__ = "0.1.0a3"
+__version__ = "0.1.0a4"
 __all__ = [
     "AccessDatabase",
     "GeologicalDatabase",

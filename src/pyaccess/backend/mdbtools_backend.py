@@ -3,6 +3,7 @@ Mdbtools backend for MS Access database operations on Linux.
 """
 
 import csv
+import platform
 import subprocess
 from io import StringIO
 from pathlib import Path
@@ -37,20 +38,68 @@ class MdbtoolsBackend(AccessBackend):
             raise DatabaseConnectionError(f"Database file not found: {db_path}")
 
         # Check if mdbtools is available
+        mdbtools_available = False
         try:
             result = subprocess.run(["mdb-tables", "--version"], capture_output=True, text=True, timeout=5)
-            if result.returncode != 0:
-                raise DatabaseConnectionError("mdbtools not found or not working")
+            if result.returncode == 0:
+                mdbtools_available = True
         except (subprocess.TimeoutExpired, FileNotFoundError):
-            raise DatabaseConnectionError(
-                "mdbtools not found. Please install mdbtools:\n"
-                "  Ubuntu/Debian: sudo apt install mdbtools\n"
-                "  CentOS/RHEL: sudo yum install mdbtools\n"
-                "  macOS: brew install mdbtools"
-            )
+            pass
+
+        if not mdbtools_available:
+            # Try to install mdbtools automatically
+            try:
+                self._install_mdbtools()
+                # Check again after installation
+                result = subprocess.run(["mdb-tables", "--version"], capture_output=True, text=True, timeout=5)
+                if result.returncode != 0:
+                    raise DatabaseConnectionError("mdbtools installed but not working")
+            except Exception:
+                raise DatabaseConnectionError(
+                    "mdbtools not found and automatic installation failed. Please install mdbtools manually:\n"
+                    "  Ubuntu/Debian: sudo apt install mdbtools\n"
+                    "  CentOS/RHEL: sudo yum install mdbtools\n"
+                    "  macOS: brew install mdbtools"
+                )
 
         self._tables_cache: list[str] | None = None
         self._schema_cache: dict[str, TableInfo] | None = None
+
+    def _command_exists(self, cmd: str) -> bool:
+        """Check if a command exists on the system."""
+        try:
+            subprocess.run([cmd, "--version"], capture_output=True, check=True, timeout=5)
+            return True
+        except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+            return False
+
+    def _install_mdbtools(self) -> None:
+        """Attempt to install mdbtools automatically."""
+        system = platform.system().lower()
+
+        try:
+            if system == "linux":
+                # Try apt first (Ubuntu/Debian)
+                if self._command_exists("apt"):
+                    subprocess.run(["sudo", "apt", "update"], check=True, timeout=60)
+                    subprocess.run(["sudo", "apt", "install", "-y", "mdbtools"], check=True, timeout=120)
+                elif self._command_exists("yum"):
+                    subprocess.run(["sudo", "yum", "install", "-y", "mdbtools"], check=True, timeout=120)
+                elif self._command_exists("dnf"):
+                    subprocess.run(["sudo", "dnf", "install", "-y", "mdbtools"], check=True, timeout=120)
+                else:
+                    raise RuntimeError("No supported package manager found (apt, yum, dnf)")
+            elif system == "darwin":  # macOS
+                if self._command_exists("brew"):
+                    subprocess.run(["brew", "install", "mdbtools"], check=True, timeout=120)
+                else:
+                    raise RuntimeError("Homebrew not found")
+            else:
+                raise RuntimeError(f"Automatic installation not supported on {system}")
+        except subprocess.CalledProcessError as e:
+            raise DatabaseConnectionError(f"Failed to install mdbtools: {e}")
+        except Exception as e:
+            raise DatabaseConnectionError(f"Error installing mdbtools: {e}")
 
     def get_tables(self) -> list[str]:
         """

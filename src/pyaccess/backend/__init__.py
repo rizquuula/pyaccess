@@ -7,16 +7,11 @@ on different platforms, with a unified interface through the AccessBackend base 
 
 import platform
 from pathlib import Path
-from typing import Union
 
 from .base import AccessBackend
-from .mdbtools_backend import MdbtoolsBackend
-from .pyodbc_backend import PyodbcBackend
 
 __all__ = [
     "AccessBackend",
-    "MdbtoolsBackend",
-    "PyodbcBackend",
     "create_backend",
 ]
 
@@ -36,13 +31,11 @@ def create_backend(db_path: str | Path) -> AccessBackend:
     """
     system = platform.system().lower()
 
-    if system == "linux":
-        # Try mdbtools backend first on Linux
-        try:
-            return MdbtoolsBackend(db_path)
-        except Exception:
-            # Fall back to pyodbc if mdbtools fails
-            return PyodbcBackend(db_path)
+    if system == "linux" or system == "darwin":
+        # Use mdbtools on Linux and macOS
+        from .mdbtools_backend import MdbtoolsBackend
+        return MdbtoolsBackend(db_path)
     else:
-        # Use pyodbc on Windows/Mac
+        # Use pyodbc on Windows
+        from .pyodbc_backend import PyodbcBackend
         return PyodbcBackend(db_path)

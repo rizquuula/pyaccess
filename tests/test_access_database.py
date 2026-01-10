@@ -160,12 +160,7 @@ class TestAccessDatabase:
             tmp_path = tmp.name
 
         try:
-            db.export_table_to_csv(
-                "collar",
-                tmp_path,
-                where="hole_id == 'NONEXISTENT_HOLE'",
-                chunksize=10
-            )
+            db.export_table_to_csv("collar", tmp_path, where="hole_id == 'NONEXISTENT_HOLE'", chunksize=10)
             assert Path(tmp_path).exists()
 
             # Verify file has headers but no data

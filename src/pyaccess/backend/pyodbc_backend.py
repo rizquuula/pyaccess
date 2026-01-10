@@ -44,13 +44,10 @@ class PyodbcBackend(AccessBackend):
                 f"DBQ={self.db_path};"
                 r"ExtendedAnsiSQL=1;"
             )
-            connection_url = URL.create(
-                "access+pyodbc",
-                query={"odbc_connect": conn_str}
-            )
+            connection_url = URL.create("access+pyodbc", query={"odbc_connect": conn_str})
             engine = create_engine(connection_url)
             # Test the connection to ensure it's valid
-            with engine.connect() as conn:
+            with engine.connect():
                 pass
             return engine
         except Exception as e:

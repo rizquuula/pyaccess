@@ -34,8 +34,10 @@ def create_backend(db_path: str | Path) -> AccessBackend:
     if system == "linux" or system == "darwin":
         # Use mdbtools on Linux and macOS
         from .mdbtools_backend import MdbtoolsBackend
+
         return MdbtoolsBackend(db_path)
     else:
         # Use pyodbc on Windows
         from .pyodbc_backend import PyodbcBackend
+
         return PyodbcBackend(db_path)

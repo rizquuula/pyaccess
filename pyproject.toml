@@ -31,10 +31,10 @@ urls = {Homepage = "https://github.com/rizquuula/pyaccess", Repository = "https:
 dependencies = [
     "pandas>=2.0.0",
     "pip>=25.3",
-    "pyodbc>=5.0.0; sys_platform != 'linux'",
+    "pyodbc>=5.0.0; sys_platform == 'win32'",
     "typing-extensions>=4.0.0",
-    "sqlalchemy>=2.0.0; sys_platform != 'linux'",
-    "sqlalchemy-access>=2.0.0; sys_platform != 'linux'",
+    "sqlalchemy>=2.0.0; sys_platform == 'win32'",
+    "sqlalchemy-access>=2.0.0; sys_platform == 'win32'",
 ]
 
 [tool.ruff]

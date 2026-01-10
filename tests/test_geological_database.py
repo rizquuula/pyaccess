@@ -46,10 +46,12 @@ class TestGeologicalDatabase:
             assert "collar" in data
             assert "survey" in data
             assert "lithology" in data
+            assert "alteration" in data
 
             assert data["collar"] is not None
             assert isinstance(data["survey"], pd.DataFrame)
             assert isinstance(data["lithology"], pd.DataFrame)
+            assert isinstance(data["alteration"], pd.DataFrame)
 
     def test_export_hole_to_csv(self, geo_db):
         """Test exporting hole data to CSV files."""
@@ -61,7 +63,12 @@ class TestGeologicalDatabase:
                 geo_db.export_hole_to_csv(hole_id, tmp_dir)
 
                 # Check that files were created
-                expected_files = [f"{hole_id}_collar.csv", f"{hole_id}_survey.csv", f"{hole_id}_lithology.csv"]
+                expected_files = [
+                    f"{hole_id}_collar.csv",
+                    f"{hole_id}_survey.csv",
+                    f"{hole_id}_lithology.csv",
+                    f"{hole_id}_alteration.csv",
+                ]
 
                 for filename in expected_files:
                     assert (Path(tmp_dir) / filename).exists()
@@ -110,3 +117,29 @@ class TestGeologicalDatabase:
             # All survey points should be for the specified hole
             if len(hole_survey) > 0:
                 assert all(hole_survey["hole_id"] == hole_id)
+
+    def test_alteration_queries(self, geo_db):
+        """Test various alteration query methods."""
+        # Test getting all alteration data
+        all_alteration = geo_db.alteration.get_all_alteration()
+        assert isinstance(all_alteration, pd.DataFrame)
+
+        # Test alteration by code (if there are codes in the data)
+        if len(all_alteration) > 0 and "alt_code_rev" in all_alteration.columns:
+            unique_codes = all_alteration["alt_code_rev"].dropna().unique()
+            if len(unique_codes) > 0:
+                first_code = unique_codes[0]
+                alteration_by_code = geo_db.alteration.get_alteration_by_code(first_code)
+                assert isinstance(alteration_by_code, pd.DataFrame)
+                if len(alteration_by_code) > 0:
+                    assert all(alteration_by_code["alt_code_rev"] == first_code)
+
+        # Test alteration for specific hole
+        collar_df = geo_db.collar.get_all_holes()
+        if len(collar_df) > 0:
+            hole_id = collar_df.iloc[0]["hole_id"]
+            hole_alteration = geo_db.alteration.get_alteration_for_hole(hole_id)
+            assert isinstance(hole_alteration, pd.DataFrame)
+            # All alteration intervals should be for the specified hole
+            if len(hole_alteration) > 0:
+                assert all(hole_alteration["hole_id"] == hole_id)

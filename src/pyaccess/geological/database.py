@@ -7,6 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 from ..core import AccessDatabase
+from .alteration import AlterationData
 from .collar import CollarData
 from .lithology import LithologyData
 from .survey import SurveyData
@@ -26,6 +27,7 @@ class GeologicalDatabase(AccessDatabase):
         self.collar = CollarData(self)
         self.survey = SurveyData(self)
         self.lithology = LithologyData(self)
+        self.alteration = AlterationData(self)
 
     def get_complete_hole_data(self, hole_id: str) -> dict[str, pd.DataFrame]:
         """
@@ -35,12 +37,13 @@ class GeologicalDatabase(AccessDatabase):
             hole_id: The hole identifier
 
         Returns:
-            Dictionary with collar, survey, and lithology data
+            Dictionary with collar, survey, lithology, and alteration data
         """
         return {
             "collar": self.collar.get_hole_by_id(hole_id),
             "survey": self.survey.get_survey_for_hole(hole_id),
             "lithology": self.lithology.get_lithology_for_hole(hole_id),
+            "alteration": self.alteration.get_alteration_for_hole(hole_id),
         }
 
     def export_hole_to_csv(self, hole_id: str, output_dir: str | Path) -> None:
@@ -62,3 +65,5 @@ class GeologicalDatabase(AccessDatabase):
         data["survey"].to_csv(output_path / f"{hole_id}_survey.csv", index=False)
 
         data["lithology"].to_csv(output_path / f"{hole_id}_lithology.csv", index=False)
+
+        data["alteration"].to_csv(output_path / f"{hole_id}_alteration.csv", index=False)
